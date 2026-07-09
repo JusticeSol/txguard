@@ -48,6 +48,12 @@ test("missing key fields lower confidence, do not raise safety", () => {
   assert.equal(r.confidence, "low");
 });
 
+test("safe verdict with low confidence gets honest summary", () => {
+  const r = scoreToken({});
+  assert.equal(r.verdict, "safe");
+  assert.match(r.summary, /unverified/);
+});
+
 // --- check_address -----------------------------------------------------------
 
 test("phishing address => danger, score >= 95", () => {

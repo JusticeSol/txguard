@@ -209,7 +209,10 @@ function finalize(
   } else if (verdict === "caution") {
     summary = `${copy.cautionAction} (${warnings.map((w) => w.code).join(", ")}).`;
   } else {
-    summary = `${copy.safeAction}.`;
+    summary =
+      confidence === "low"
+        ? `${copy.safeAction}, but key security fields were unavailable — treat as unverified, not proven safe.`
+        : `${copy.safeAction}.`;
   }
 
   return { score, verdict, confidence, critical, warnings, summary };
