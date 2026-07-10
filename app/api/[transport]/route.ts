@@ -1,28 +1,17 @@
-// TxGuard MCP server — exposes the 4 risk-check tools to any MCP client.
-// Served at /api/mcp (Streamable HTTP) via mcp-handler on Vercel/Next.js.
-//
-// ── x402 PAYMENT LAYER ───────────────────────────────────────────────────────
-// Day-3 task: gate tool calls with OKX x402 (X Layer, USDT/USDG, OKX
-// facilitator). Until gated, this endpoint is FREE. Do NOT list on OKX.AI
-// before payment gating is live.
-// ─────────────────────────────────────────────────────────────────────────────
+// TxGuard MCP server — payment-gated edition.
+// Free: initialize, tools/list, notifications (agents must discover before paying).
+// Paid: tools/call — x402 (OKX, X Layer, USDT) verify + settle before the tool runs.
 
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { runTool } from "../../../lib/txguard";
+import { classifyRequest, enforcePayment } from "../../../lib/payment";
 import { UpstreamError, type ToolName, type TxGuardResponse } from "../../../lib/types";
 
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
+const evmAddress = z.string().regex(ADDR_RE, "Must be a 0x-prefixed 40-hex-char EVM address");
+const chainId = z.string().regex(/^\d+$/, "Numeric chain id as string, e.g. '1', '56', '196'");
 
-const evmAddress = z
-  .string()
-  .regex(ADDR_RE, "Must be a 0x-prefixed 40-hex-char EVM address");
-
-const chainId = z
-  .string()
-  .regex(/^\d+$/, "Numeric chain id as string, e.g. '1' (Ethereum), '56' (BSC), '196' (X Layer)");
-
-/** Format a TxGuardResponse for MCP: human-readable line + full JSON payload. */
 function ok(result: TxGuardResponse) {
   return {
     content: [
@@ -37,7 +26,6 @@ function ok(result: TxGuardResponse) {
   };
 }
 
-/** FAIL CLOSED: upstream failure is an error, never a "safe" answer. */
 function failClosed(err: unknown) {
   const detail = err instanceof UpstreamError ? `${err.source}: ${err.message}` : String(err);
   return {
@@ -100,14 +88,26 @@ const handler = createMcpHandler(
       async ({ url }) => call("check_url", url),
     );
   },
-  {
-    serverInfo: { name: "txguard", version: "0.1.0" },
-  },
-  {
-    basePath: "/api",       // tools served at /api/mcp
-    maxDuration: 60,
-    verboseLogs: false,
-  },
+  { serverInfo: { name: "txguard", version: "0.2.0" } },
+  { basePath: "/api", maxDuration: 60, verboseLogs: false },
 );
 
-export { handler as GET, handler as POST, handler as DELETE };
+/** POST: gate billable JSON-RPC methods (tools/call) behind x402 payment. */
+async function gatedPost(req: Request): Promise<Response> {
+  const { billable, body } = await classifyRequest(req);
+
+  if (billable) {
+    const denial = await enforcePayment(req);
+    if (denial) return denial;
+  }
+
+  // body was consumed by classifyRequest — rebuild the request for the handler
+  const forwarded = new Request(req.url, {
+    method: "POST",
+    headers: req.headers,
+    body,
+  });
+  return handler(forwarded);
+}
+
+export { handler as GET, handler as DELETE, gatedPost as POST };
