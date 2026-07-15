@@ -43,20 +43,26 @@ export default function Home() {
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 8 }}>
         <span style={{ fontSize: 34 }}>🛡</span>
         <h1 style={{ color: "#4ade80", fontSize: 32, margin: 0, letterSpacing: "-0.5px" }}>TxGuard</h1>
-        <span
-          style={{
-            marginLeft: "auto",
-            fontSize: 12,
-            padding: "5px 11px",
-            borderRadius: 999,
-            border: "1px solid #1d9e75",
-            background: "#0f2e24",
-            color: "#5dcaa5",
-            whiteSpace: "nowrap",
-          }}
+        <a
+          href="https://www.okx.ai/agents/4922"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ marginLeft: "auto", textDecoration: "none" }}
         >
-          ● Live on OKX.AI · ASP #4922
-        </span>
+          <span
+            style={{
+              fontSize: 12,
+              padding: "5px 11px",
+              borderRadius: 999,
+              border: "1px solid #1d9e75",
+              background: "#0f2e24",
+              color: "#5dcaa5",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ● Live on OKX.AI · ASP #4922
+          </span>
+        </a>
       </div>
 
       <p style={{ fontSize: 19, lineHeight: 1.6, color: "#c3d6cb", marginTop: 20 }}>
@@ -124,6 +130,15 @@ export default function Home() {
         New to OKX.AI?{" "}
         <a href="https://www.okx.ai/tutorial/user" style={{ color: "#5dcaa5" }}>
           Read the user guide
+        </a>{" "}
+        ·{" "}
+        <a
+          href="https://www.okx.ai/agents/4922"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "#5dcaa5" }}
+        >
+          View the listing
         </a>
         .
       </p>
