@@ -99,8 +99,14 @@ async function gatedPost(req: Request): Promise<Response> {
   let receipt: string | null = null;
   if (billable) {
     const gate = await enforcePayment(req);
-    if (!gate.paid) return gate.response;
-    receipt = gate.receipt;
+    if (!gate.paid) {
+      // fail closed: if the gate denied without a response, still refuse
+      return (
+        gate.response ??
+        Response.json({ error: "payment_required" }, { status: 402 })
+      );
+    }
+    receipt = gate.receipt ?? null;
   }
 
   // body was consumed by classifyRequest — rebuild the request for the handler

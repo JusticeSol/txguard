@@ -90,10 +90,19 @@ function paymentRequiredResponse(error?: string) {
   })();
 }
 
-/** Result of gating a billable request. */
-export type GateResult =
-  | { paid: true; receipt: string | null }   // proceed; receipt = base64 PAYMENT-RESPONSE value
-  | { paid: false; response: Response };     // short-circuit with this (402 / 500 / 502)
+/**
+ * Result of gating a billable request.
+ * Flat on purpose — no discriminated-union narrowing, so it compiles the same
+ * whether or not the project has strictNullChecks enabled.
+ */
+export interface GateResult {
+  /** true → proceed to the tool. false → return `response` to the caller. */
+  paid: boolean;
+  /** base64 PAYMENT-RESPONSE value. Set when paid. */
+  receipt?: string | null;
+  /** Short-circuit response (402 / 500 / 502). Set when not paid. */
+  response?: Response;
+}
 
 const deny = (response: Response): GateResult => ({ paid: false, response });
 
