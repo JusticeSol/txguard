@@ -90,63 +90,92 @@ function paymentRequiredResponse(error?: string) {
   })();
 }
 
+/** Result of gating a billable request. */
+export type GateResult =
+  | { paid: true; receipt: string | null }   // proceed; receipt = base64 PAYMENT-RESPONSE value
+  | { paid: false; response: Response };     // short-circuit with this (402 / 500 / 502)
+
+const deny = (response: Response): GateResult => ({ paid: false, response });
+
+/** base64(JSON) of the facilitator's settle response — the x402 PAYMENT-RESPONSE value. */
+function encodeReceipt(settle: unknown): string | null {
+  try {
+    return Buffer.from(JSON.stringify(settle), "utf8").toString("base64");
+  } catch {
+    return null; // a receipt we can't encode must never block a paid call
+  }
+}
+
 /**
- * Gate a billable request. Returns null if payment is valid & settled
- * (caller should proceed), or a Response (402/502) to short-circuit with.
+ * Gate a billable request. On success returns the settlement receipt so the
+ * caller can surface it as PAYMENT-RESPONSE; otherwise returns the Response
+ * to short-circuit with.
  */
-export async function enforcePayment(req: Request): Promise<Response | null> {
-  if (FREE_MODE) return null;
+export async function enforcePayment(req: Request): Promise<GateResult> {
+  if (FREE_MODE) return { paid: true, receipt: null };
   if (!OKX_API_KEY || !OKX_SECRET_KEY || !OKX_PASSPHRASE) {
-    return Response.json(
-      { error: "server_misconfigured", detail: "OKX API credentials not set" },
-      { status: 500 },
+    return deny(
+      Response.json(
+        { error: "server_misconfigured", detail: "OKX API credentials not set" },
+        { status: 500 },
+      ),
     );
   }
   if (!PAYTO) {
-    return Response.json(
-      { error: "server_misconfigured", detail: "TXGUARD_PAYTO not set" },
-      { status: 500 },
+    return deny(
+      Response.json(
+        { error: "server_misconfigured", detail: "TXGUARD_PAYTO not set" },
+        { status: 500 },
+      ),
     );
   }
 
   const header = req.headers.get("X-PAYMENT") ?? req.headers.get("PAYMENT-SIGNATURE");
-  if (!header) return paymentRequiredResponse();
+  if (!header) return deny(await paymentRequiredResponse());
 
   let payload: any;
   try {
     payload = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
   } catch {
-    return paymentRequiredResponse("Malformed X-PAYMENT header (expected base64 JSON)");
+    return deny(await paymentRequiredResponse("Malformed X-PAYMENT header (expected base64 JSON)"));
   }
 
   const server = await getPaymentServer();
   const requirements = payload?.accepted;
-  if (!requirements) return paymentRequiredResponse("Payment payload missing accepted requirements");
+  if (!requirements)
+    return deny(await paymentRequiredResponse("Payment payload missing accepted requirements"));
 
   // basic sanity: the buyer must be paying US, on OUR network
   if (
     String(requirements.payTo).toLowerCase() !== PAYTO.toLowerCase() ||
     requirements.network !== NETWORK
   ) {
-    return paymentRequiredResponse("Payment requirements do not match this service");
+    return deny(await paymentRequiredResponse("Payment requirements do not match this service"));
   }
 
   const verify = await server.verifyPayment(payload, requirements);
   if (!verify.isValid) {
-    return paymentRequiredResponse(verify.invalidMessage ?? verify.invalidReason ?? "Invalid payment");
+    return deny(
+      await paymentRequiredResponse(verify.invalidMessage ?? verify.invalidReason ?? "Invalid payment"),
+    );
   }
 
   const settle = await server.settlePayment(payload, requirements);
   if (!settle.success) {
     // fail closed: no settlement, no verdict
-    return Response.json(
-      {
-        error: "settlement_failed",
-        detail: settle.errorMessage ?? settle.errorReason ?? "unknown",
-      },
-      { status: 502 },
+    return deny(
+      Response.json(
+        {
+          error: "settlement_failed",
+          detail: settle.errorMessage ?? settle.errorReason ?? "unknown",
+          receipt: encodeReceipt(settle),
+        },
+        { status: 502 },
+      ),
     );
   }
 
-  return null; // paid — proceed to MCP handler
+  // Paid. The receipt carries transaction / payer / network / amount, and OKX's
+  // status extension ("pending" = accepted but not yet confirmed on-chain).
+  return { paid: true, receipt: encodeReceipt(settle) };
 }

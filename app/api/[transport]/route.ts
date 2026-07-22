@@ -96,9 +96,11 @@ const handler = createMcpHandler(
 async function gatedPost(req: Request): Promise<Response> {
   const { billable, body } = await classifyRequest(req);
 
+  let receipt: string | null = null;
   if (billable) {
-    const denial = await enforcePayment(req);
-    if (denial) return denial;
+    const gate = await enforcePayment(req);
+    if (!gate.paid) return gate.response;
+    receipt = gate.receipt;
   }
 
   // body was consumed by classifyRequest — rebuild the request for the handler
@@ -107,7 +109,20 @@ async function gatedPost(req: Request): Promise<Response> {
     headers: req.headers,
     body,
   });
-  return handler(forwarded);
+  const res = await handler(forwarded);
+
+  if (!receipt) return res;
+
+  // Attach the settlement receipt (x402 PAYMENT-RESPONSE). Response headers are
+  // immutable, so rebuild — passing res.body through keeps SSE streaming intact.
+  const headers = new Headers(res.headers);
+  headers.set("PAYMENT-RESPONSE", receipt);
+  headers.set("Access-Control-Expose-Headers", "PAYMENT-RESPONSE");
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
 }
 
 export { handler as GET, handler as DELETE, gatedPost as POST };
